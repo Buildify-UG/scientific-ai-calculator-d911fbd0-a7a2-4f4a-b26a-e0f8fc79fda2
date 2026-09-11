@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, Delete } from "lucide-react";
+import { RotateCcw, Delete, Sparkles } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 interface CalculatorState {
   display: string;
@@ -10,6 +12,9 @@ interface CalculatorState {
   history: string[];
 }
 
+const SUPABASE_URL = "https://ovlidaggrndegijtysvr.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im92bGlkYWdncm5kZWdpanR5c3ZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxNDI4MzYsImV4cCI6MjEwNDcxODgzNn0.XtXlGYCN7FqxxcF2ObjES15JUOGCHWGbmeRUVx1ItnI";
+
 const ScientificCalculator = () => {
   const [state, setState] = useState<CalculatorState>({
     display: "0",
@@ -18,6 +23,10 @@ const ScientificCalculator = () => {
     waitingForNewValue: false,
     history: [],
   });
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [aiInput, setAiInput] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<string | null>(null);
 
   const handleNumber = (num: string) => {
     setState((prev) => ({
@@ -202,6 +211,65 @@ const ScientificCalculator = () => {
     if (!isFinite(num)) return "Error";
     if (Math.abs(num) > 1e10) return num.toExponential(6);
     return parseFloat(num.toPrecision(12)).toString();
+  };
+
+  const handleAICalculate = async () => {
+    if (!aiInput.trim()) return;
+
+    setAiLoading(true);
+    setAiResult(null);
+
+    try {
+      // Use OpenRouter API (free tier available)
+      const response = await fetch(
+        "https://openrouter.io/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "HTTP-Referer": window.location.href,
+            "X-Title": "Scientific Calculator",
+          },
+          body: JSON.stringify({
+            model: "meta-llama/llama-2-7b-chat:free",
+            messages: [
+              {
+                role: "user",
+                content: `You are a math calculator. Solve this problem and return ONLY the numerical answer or brief result. Problem: ${aiInput}`,
+              },
+            ],
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setAiResult(`Error: ${data.error?.message || "Failed to calculate"}`);
+      } else {
+        const resultText =
+          data.choices?.[0]?.message?.content || "No result";
+        const resultValue = parseFloat(resultText);
+        const finalResult = isNaN(resultValue)
+          ? resultText
+          : formatResult(resultValue);
+
+        setAiResult(finalResult);
+        if (!isNaN(resultValue)) {
+          setState((prev) => ({
+            ...prev,
+            display: formatResult(resultValue),
+            waitingForNewValue: true,
+          }));
+        }
+      }
+    } catch (error) {
+      setAiResult(
+        `Error: ${error instanceof Error ? error.message : "Failed to calculate"}`
+      );
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   return (
@@ -480,6 +548,15 @@ const ScientificCalculator = () => {
                 +/-
               </Button>
             </div>
+
+            {/* AI Button */}
+            <Button
+              onClick={() => setShowAIModal(true)}
+              className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-semibold flex items-center justify-center gap-2"
+            >
+              <Sparkles size={18} />
+              AI Calculation
+            </Button>
           </div>
 
           {/* Footer */}
@@ -487,6 +564,61 @@ const ScientificCalculator = () => {
             <p>All trigonometric functions use degrees</p>
           </div>
         </div>
+
+        {/* AI Modal */}
+        <Dialog open={showAIModal} onOpenChange={setShowAIModal}>
+          <DialogContent className="bg-slate-800 border-slate-700">
+            <DialogHeader>
+              <DialogTitle className="text-white flex items-center gap-2">
+                <Sparkles size={20} className="text-amber-500" />
+                AI Math Solver
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <label className="text-slate-300 text-sm font-medium block mb-2">
+                  Describe your math problem:
+                </label>
+                <Input
+                  placeholder="e.g., What is the square root of 144? or Calculate 25% of 200"
+                  value={aiInput}
+                  onChange={(e) => setAiInput(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") handleAICalculate();
+                  }}
+                  className="bg-slate-900 border-slate-600 text-white placeholder-slate-500"
+                />
+              </div>
+              {aiResult && (
+                <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
+                  <div className="text-slate-400 text-sm mb-1">Result:</div>
+                  <div className="text-white text-2xl font-mono font-bold">
+                    {aiResult}
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleAICalculate}
+                  disabled={aiLoading || !aiInput.trim()}
+                  className="flex-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-semibold disabled:opacity-50"
+                >
+                  {aiLoading ? "Calculating..." : "Calculate"}
+                </Button>
+                <Button
+                  onClick={() => {
+                    setShowAIModal(false);
+                    setAiInput("");
+                    setAiResult(null);
+                  }}
+                  className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
